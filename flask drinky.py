@@ -1,7 +1,7 @@
 from flask import Flask
 import requests
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="web")
 
 @app.route('/')
 def hello():
