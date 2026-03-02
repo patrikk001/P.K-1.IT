@@ -1,7 +1,74 @@
-from flask import Flask
+from flask import Flask, render_template
 import requests
 
 app = Flask(__name__, template_folder="web")
+
+
+def _split_instructions(text):
+    if not isinstance(text, str):
+        return []
+
+    normalized = text.replace("\r", "\n").replace(".", "\n")
+    steps = [step.strip(" -\t") for step in normalized.split("\n") if step.strip()]
+    return steps
+
+
+def _extract_ingredients(drink):
+    ingredients = []
+
+    if isinstance(drink.get("ingredients"), list):
+        for item in drink["ingredients"]:
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("ingredient") or item.get("title")
+                amount = item.get("amount") or item.get("measure") or item.get("quantity")
+                if name and amount:
+                    ingredients.append(f"{amount} {name}".strip())
+                elif name:
+                    ingredients.append(str(name).strip())
+            elif isinstance(item, str) and item.strip():
+                ingredients.append(item.strip())
+
+    if not ingredients:
+        for key, value in drink.items():
+            if not isinstance(key, str):
+                continue
+            key_lower = key.lower()
+            if "ingredient" in key_lower and value:
+                ingredients.append(str(value).strip())
+
+    return ingredients
+
+
+def _extract_steps(drink):
+    instruction_keys = [
+        "instructions",
+        "method",
+        "preparation",
+        "recipe",
+        "description",
+    ]
+
+    for key in instruction_keys:
+        value = drink.get(key)
+        if isinstance(value, list):
+            return [str(step).strip() for step in value if str(step).strip()]
+        if isinstance(value, str) and value.strip():
+            return _split_instructions(value)
+
+    return []
+
+
+def _build_cocktail_view(drink):
+    ingredients = _extract_ingredients(drink)
+    steps = _extract_steps(drink)
+
+    return {
+        "name": drink.get("name", "Unknown drink"),
+        "image": drink.get("image"),
+        "ingredients": ingredients,
+        "steps": steps,
+    }
+
 
 @app.route('/')
 def hello():
@@ -9,132 +76,12 @@ def hello():
 
     if response.status_code == 200:
         raw = response.json()
-        cocktails = raw["data"]
+        cocktails = [_build_cocktail_view(drink) for drink in raw.get("data", [])]
 
-        resp = """
-        <html>
-        <head>
-            <title>Svet Drinkov</title>
-            <style>
-                body {
-                    margin: 0;
-                    padding: 40px;
-                    font-family: 'Segoe UI', sans-serif;
-                    background: linear-gradient(-45deg, #0f9b0f, #00c6ff, #f9d423, #1e3c72);
-                    background-size: 400% 400%;
-                    animation: gradientMove 12s ease infinite;
-                    color: white;
-                }
-
-                @keyframes gradientMove {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                }
-
-                h1 {
-                    text-align: center;
-                    font-size: 65px;
-                    margin-bottom: 10px;
-                    font-weight: 900;
-                    letter-spacing: 4px;
-                    background: linear-gradient(90deg, gold, yellow, white);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                    text-shadow: 0 0 30px rgba(255,215,0,0.8);
-                    animation: glowPulse 2s infinite alternate;
-                }
-
-                @keyframes glowPulse {
-                    from { text-shadow: 0 0 15px gold; }
-                    to { text-shadow: 0 0 40px yellow, 0 0 60px white; }
-                }
-
-                .subtitle {
-                    text-align: center;
-                    margin-bottom: 50px;
-                    font-size: 18px;
-                    letter-spacing: 3px;
-                    opacity: 0.9;
-                }
-
-                .container {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                    gap: 30px;
-                }
-
-                .card {
-                    background: rgba(255, 255, 255, 0.15);
-                    backdrop-filter: blur(15px);
-                    border-radius: 25px;
-                    overflow: hidden;
-                    transition: all 0.4s ease;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-                }
-
-                .card:hover {
-                    transform: translateY(-12px) scale(1.05);
-                    box-shadow: 0 0 40px rgba(255,255,0,0.9);
-                }
-
-                .card img {
-                    width: 100%;
-                    height: 260px;
-                    object-fit: cover;
-                }
-
-                .card h3 {
-                    text-align: center;
-                    padding: 20px;
-                    font-size: 20px;
-                    color: yellow;
-                    letter-spacing: 1px;
-                }
-
-                footer {
-                    text-align: center;
-                    margin-top: 60px;
-                    opacity: 0.8;
-                    font-size: 14px;
-                }
-
-            </style>
-        </head>
-        <body>
-
-            <h1>🍹 Svet Drinkov</h1>
-            <div class="subtitle">Objav svet luxusných koktejlov ✨</div>
-
-            <div class="container">
-        """
-
-        for drink in cocktails:
-            name = drink.get("name", "Unknown drink")
-            image = drink.get("image")
-
-            if image:
-                resp += f"""
-                <div class="card">
-                    <img src="{image}">
-                    <h3>{name}</h3>
-                </div>
-                """
-
-        resp += """
-            </div>
-
-            <footer>
-                Svet Drinkov 🍸 | Flask Edition
-            </footer>
-
-        </body>
-        </html>
-        """
-
-        return resp
+        return render_template("index.html", cocktails=cocktails)
 
     return "Error loading cocktails"
+
 
 if __name__ == "__main__":
     app.run(debug=True)
